@@ -19,14 +19,25 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+
+from math import floor
+import os
+
+import pysrt
 from core.buffer import Buffer
-from core.utils import interactive, message_to_emacs
+from core.utils import interactive, message_to_emacs, eval_in_emacs, PostGui
 from PyQt6 import QtCore, QtWidgets
 from PyQt6.QtCore import QEvent, QRectF, QSizeF, Qt, QUrl
-from PyQt6.QtGui import QBrush, QColor, QPainter
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QGraphicsScene,
+    QGraphicsView,
+    QHBoxLayout,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class AppBuffer(Buffer):
@@ -69,6 +80,12 @@ class AppBuffer(Buffer):
         self.buffer_widget.media_player.pause()
 
         super().destroy_buffer()
+        
+    @PostGui()
+    def message_box_update(self, text, x, y):
+        # print(self.buffer_widget.message_box)
+        message_box = self.buffer_widget.message_box
+        message_box.update(text, x, y)
 
 class VideoPlayer(QWidget):
 
@@ -112,8 +129,14 @@ class VideoPlayer(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.graphics_view)
 
+        self.subtitles = Subtitles(self)
+        self.message_box = MessageBox(self)
+        
         self.scene.addItem(self.video_item)
         self.scene.addItem(self.control_panel)
+        self.scene.addItem(self.subtitles)
+        self.scene.addItem(self.message_box)
+        
         self.control_panel_proxy_widget = self.scene.addWidget(self.control_panel_widget)
 
         self.media_player = QMediaPlayer()
@@ -135,6 +158,7 @@ class VideoPlayer(QWidget):
 
     def progress_change(self, position):
         self.progress_bar.update_progress(self.media_player.duration(), position)
+        self.subtitles.update_subtitle(position)
 
     def resizeEvent(self, event):
         self.video_item.setSize(QSizeF(event.size().width(), event.size().height()))
@@ -150,6 +174,7 @@ class VideoPlayer(QWidget):
         QWidget.resizeEvent(self, event)
 
     def play(self, url):
+        self.subtitles.open(url)
         self.media_player.setSource(QUrl.fromLocalFile(url))
         self.media_player.play()
 
@@ -174,6 +199,25 @@ class VideoPlayer(QWidget):
     def show_control_panel(self):
         self.control_panel.show()
         self.control_panel_proxy_widget.show()
+        
+        
+    @interactive
+    def play_forward_subtitle(self):
+        subs = self.subtitles.subs
+        current_sub = self.subtitles.current_sub
+        index = max(0, current_sub.index + 1)
+        start = subs[index].start
+        self.media_player.setPosition(floor(self.subtitles.parse_srt_time(start)))
+        message_to_emacs(f"Forward to: {start}")
+
+    @interactive
+    def play_backward_subtitle(self):
+        subs = self.subtitles.subs
+        current_sub = self.subtitles.current_sub
+        index = max(0, current_sub.index - 1)
+        start = subs[index].start
+        self.media_player.setPosition(floor(self.subtitles.parse_srt_time(start)))
+        message_to_emacs(f"Forward to: {start}")
 
     @interactive
     def play_forward(self):
@@ -238,7 +282,6 @@ class ProgressBar(QWidget):
     def update_progress(self, duration, position):
         self.position = position
         self.duration = duration
-
         self.update()
 
     def mousePressEvent(self, event):
@@ -265,3 +308,151 @@ class ProgressBar(QWidget):
             painter.setPen(self.foreground_color)
             painter.setBrush(self.foreground_color)
             painter.drawRect(0, int(render_y), int(self.width() * self.position / self.duration), int(self.render_height))
+            
+            
+
+class Subtitles(QtWidgets.QGraphicsTextItem):
+    def __init__(self, video_player : VideoPlayer):
+        super(Subtitles, self).__init__()
+        self.video_player = video_player
+        self.x_offset = 0
+        self.y_offset = 0
+        self.subs = []
+        self.current_sub = None
+
+        
+    def open(self, url):
+        base = os.path.splitext(url)[0]
+        subtitle_url = f'{base}.srt'
+        if os.path.exists(subtitle_url):
+            self.subs = pysrt.open(subtitle_url, encoding='utf-8')
+        else:
+            message_to_emacs("There is no subtitles.")
+
+            
+    def parse_srt_time(self, sub_rip_time):
+        total_seconds = sub_rip_time.hours * 3600 + sub_rip_time.minutes * 60 + sub_rip_time.seconds + sub_rip_time.milliseconds / 1000.0
+        return total_seconds * 1000
+    
+   
+    def update_subtitle(self, position):
+        for sub in self.subs:
+            start_time = self.parse_srt_time(sub.start)
+            end_time = self.parse_srt_time(sub.end)
+            if start_time <= position and end_time >= position:
+                if self.current_sub != sub:
+                    self.current_sub = sub
+                    self.update_view(sub.text)
+
+    def add_child(self, child : QtWidgets.QGraphicsTextItem):
+        child.setParentItem(self)
+        child.setPos(self.x_offset, self.y_offset)
+        video_size = self.video_player.size()
+        max_width = video_size.width() - 200
+        child_rect = child.boundingRect()
+        self.x_offset += child_rect.width() + 5
+        if self.x_offset >= max_width:
+            self.x_offset = 0
+            self.y_offset += child_rect.height() + 1
+            
+    def reposition(self):
+        video_size = self.video_player.size()
+        subtitle_rect = self.childrenBoundingRect()
+        x_position = (video_size.width() - subtitle_rect.width()) / 2
+        y_position = (video_size.height() - subtitle_rect.height()) - 60
+        for item in self.childItems():
+            pos = item.pos()
+            item.setPos(x_position + pos.x(), y_position + pos.y())
+            
+    def update_view(self, text : str):
+        self.clear()
+        words = text.split()
+        for word in words:
+            subtitle_word = SubtitleWord(word, self.video_player)    
+            self.add_child(subtitle_word)
+        self.reposition()
+        
+    def clear(self):
+        children = self.childItems()
+        self.x_offset = 0
+        self.y_offset = 0
+        for child in children:
+            self.scene().removeItem(child)
+            del child
+
+        
+class SubtitleWord(QtWidgets.QGraphicsTextItem):
+    def __init__(self, text, video_player : VideoPlayer):
+        super(SubtitleWord, self).__init__(text)
+        self.video_player = video_player
+        self.setAcceptHoverEvents(True)
+        font = QFont("Alegreya")
+        font.setPixelSize(50)        
+        self.setFont(font)
+        self.setDefaultTextColor(QColor("red"))
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            self.explain_sentence(event)
+        else:
+            super().mousePressEvent(event)
+
+    def explain_sentence(self, event):
+        self.video_player.media_player.pause()
+        subtitles = self.video_player.subtitles
+        sentence = " ".join([item.toPlainText() for item in subtitles.childItems()])
+        x = subtitles.childrenBoundingRect().x()
+        y = subtitles.childrenBoundingRect().y()
+        eval_in_emacs("eaf-video-player-explain-sentence", [sentence, x, y])
+        
+    def hoverEnterEvent(self, event):
+        self.video_player.media_player.pause()
+        self.setDefaultTextColor(QColor("green"))
+        scene_pos = self.mapToScene(event.pos())
+        self.video_player.message_box.show()
+        x = scene_pos.x()
+        y = self.parentItem().childrenBoundingRect().y()
+        eval_in_emacs("eaf-video-player-lookup", [self.toPlainText(), x, y])
+
+    def hoverLeaveEvent(self, event):
+        self.video_player.media_player.play()
+        self.setDefaultTextColor(QColor("red"))
+        self.video_player.message_box.hide()
+        
+        
+class MessageBox(QtWidgets.QGraphicsTextItem):
+    def __init__(self, video_player : VideoPlayer,
+                 background_color=Qt.GlobalColor.white):
+        super().__init__()
+        self.video_player = video_player
+        font = QFont("TsangerJinKai04")
+        font.setPixelSize(20)        
+        self.hide()
+        self.setFont(font)
+        self.background_color = background_color
+
+    def paint(self, painter, option, widget=None):
+        painter.setBrush(self.background_color)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        rect = self.boundingRect()
+        painter.drawRect(rect)
+
+        super().paint(painter, option, widget)
+        
+    def update(self, text : str, x, y):
+        self.setPlainText(text)
+        rect = self.boundingRect()
+        max_width = self.video_player.width()
+        if rect.width() >= max_width:
+            self.setTextWidth(max_width - 50)
+            rect = self.boundingRect()
+        if x + rect.width() >= max_width:
+            x = max_width - rect.width()
+        else:
+            x = x - rect.width() / 2
+        y = y - rect.height()
+        
+        self.setPos(x, y)
+        
+

@@ -81,7 +81,6 @@
 
 ;;; Require
 
-
 ;;; Code:
 
 (defcustom eaf-video-player-keybinding
@@ -93,14 +92,33 @@
     ("k" . "increase_volume")
     ("f" . "toggle_fullscreen")
     ("r" . "restart")
-    )
+    ("s" . "subtitle"))
+
   "The keybinding of EAF Video Player."
   :type 'cons)
+
+(setq eaf-video-player-keybinding
+      '(("SPC" . "toggle_play")
+        ("x" . "close_buffer")
+        ("h" . "play_backward")
+        ("l" . "play_forward")
+        ("[" . "decrease_volume")
+        ("]" . "increase_volume")
+        ("j" . "play_backward_subtitle")
+        ("k" . "play_forward_subtitle")
+        ("f" . "toggle_fullscreen")
+        ("r" . "restart")))
+
+
 
 (defcustom eaf-video-extension-list
   '("avi" "webm" "rmvb" "ogg" "mp4" "mkv" "m4v")
   "The extension list of video player application."
   :type 'cons)
+
+(defun eaf-video-player--navigate-by-subtitles (&rest subtitles)
+  (print subtitles)
+  (completing-read "navigate by subtitles: " subtitles))
 
 (add-to-list 'eaf-app-binding-alist '("video-player" . eaf-video-player-keybinding))
 
@@ -108,6 +126,13 @@
 (add-to-list 'eaf-app-module-path-alist '("video-player" . eaf-video-player-module-path))
 
 (add-to-list 'eaf-app-extensions-alist '("video-player" . eaf-video-extension-list))
+
+(defun eaf-video-player-lookup (text x y)
+  (eaf-call-async "execute_function_with_args" eaf--buffer-id "message_box_update" text x y))
+
+(defun eaf-video-player-explain-sentence (text x y)
+  (eaf-call-async "execute_function_with_args" eaf--buffer-id "message_box_update" text x y))
+  
 
 (provide 'eaf-video-player)
 
