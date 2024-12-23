@@ -107,9 +107,8 @@
         ("j" . "play_backward_subtitle")
         ("k" . "play_forward_subtitle")
         ("f" . "toggle_fullscreen")
-        ("r" . "restart")))
-
-
+        ("r" . "restart")
+        ))
 
 (defcustom eaf-video-extension-list
   '("avi" "webm" "rmvb" "ogg" "mp4" "mkv" "m4v")
