@@ -375,9 +375,19 @@ class Subtitles(QtWidgets.QGraphicsTextItem):
         self.subs = []
         self.current_sub = None
 
-    def open(self, url):
+    def searchSubtitlesFile(self, url):
         base = os.path.splitext(url)[0]
-        subtitle_url = f"{base}.srt"
+        directory = os.path.dirname(url)
+        srt_files = [f for f in os.listdir(directory) if f.endswith(".srt")]
+        for srt_file in srt_files:
+            srt_path = os.path.join(directory, srt_file)
+            if srt_path.startswith(base):
+                return srt_path
+
+
+
+    def open(self, url):
+        subtitle_url = self.searchSubtitlesFile(url)
         if os.path.exists(subtitle_url):
             self.subs = pysrt.open(subtitle_url, encoding="utf-8")
         else:
