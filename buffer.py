@@ -240,7 +240,7 @@ class VideoPlayer(QWidget):
         from subliminal import download_best_subtitles, region, save_subtitles, scan_video
         try:
             # Configure Cache
-            region.configure('dogpile.cache.dbm', arguments={'filename': 'cachefile.dbm'})
+            region.configure('dogpile.cache.dbm', arguments={'filename': 'cachefile.dbm'}, replace_existing_backend=True)
 
             # Scan Video
             video = scan_video(url)
