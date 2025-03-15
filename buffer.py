@@ -39,7 +39,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-
 class AppBuffer(Buffer):
     def __init__(self, buffer_id, url, arguments):
         Buffer.__init__(self, buffer_id, url, arguments, True)
@@ -235,6 +234,29 @@ class VideoPlayer(QWidget):
         self.control_panel.show()
         self.control_panel_proxy_widget.show()
 
+    def download_subtitles_thread(self, url):
+        """Subtitle download function executed in multiple processes"""
+        from babelfish import Language
+        from subliminal import download_best_subtitles, region, save_subtitles, scan_video
+        try:
+            # Configure Cache
+            region.configure('dogpile.cache.dbm', arguments={'filename': 'cachefile.dbm'})
+
+            # Scan Video
+            video = scan_video(url)
+
+            # Download the best subtitles.
+            subtitles = download_best_subtitles([video], {Language('eng')})
+
+            # Save subtitles to disk
+            save_subtitles(video, subtitles[video])
+            print("Subtitle download complete.")
+            message_to_emacs("Subtitle download complete.")
+
+        except Exception as e:
+            print(f"Error downloading subtitles: {e}")
+            message_to_emacs(f"Error downloading subtitles: {e}")
+
     @interactive
     def play_forward_subtitle(self):
         subs = self.subtitles.subs
@@ -290,6 +312,20 @@ class VideoPlayer(QWidget):
         message_to_emacs(
             "Decrease volume to: {}%".format(self.audio_output.volume() * 100)
         )
+
+    @interactive
+    def download_subtitles(self):
+        import threading
+        message_to_emacs("Downloading subtitle.")
+        # Retrieve video path
+        url = self.media_player.source().path()
+        thread = threading.Thread(target=self.download_subtitles_thread, args=(url,))
+        thread.start()
+
+    @interactive
+    def reload_subtitles(self):
+        url = self.media_player.source().path()
+        self.subtitles.open(url)
 
     @interactive
     def restart(self):
@@ -384,11 +420,10 @@ class Subtitles(QtWidgets.QGraphicsTextItem):
             if srt_path.startswith(base):
                 return srt_path
 
-
-
     def open(self, url):
         subtitle_url = self.searchSubtitlesFile(url)
-        if os.path.exists(subtitle_url):
+        if subtitle_url and os.path.exists(subtitle_url):
+            message_to_emacs(f'Subtitle is: {subtitle_url}')
             self.subs = pysrt.open(subtitle_url, encoding="utf-8")
         else:
             message_to_emacs("There is no subtitles.")
@@ -453,10 +488,27 @@ class SubtitleWord(QtWidgets.QGraphicsTextItem):
         super(SubtitleWord, self).__init__(text)
         self.video_player = video_player
         self.setAcceptHoverEvents(True)
+
+        # Set Font
         font = QFont("Alegreya")
         font.setPixelSize(50)
         self.setFont(font)
-        self.setDefaultTextColor(QColor("red"))
+
+        # Text front color is white
+        self.setDefaultTextColor(QColor("white"))
+
+        # Add Black Outline
+        self.setOutlineEffect()
+
+
+    def setOutlineEffect(self):
+
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(3)
+        shadow.setColor(QColor("black"))
+        shadow.setOffset(1, 1)
+
+        self.setGraphicsEffect(shadow)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton:
@@ -483,7 +535,7 @@ class SubtitleWord(QtWidgets.QGraphicsTextItem):
 
     def hoverLeaveEvent(self, event):
         self.video_player.media_player.play()
-        self.setDefaultTextColor(QColor("red"))
+        self.setDefaultTextColor(QColor("white"))
         self.video_player.message_box.hide()
 
 
@@ -494,31 +546,41 @@ class MessageBox(QtWidgets.QGraphicsTextItem):
         super().__init__()
         self.video_player = video_player
         font = QFont("TsangerJinKai04")
-        font.setPixelSize(20)
+        self.setDefaultTextColor(QColor("white"))
+        font.setPixelSize(15)
         self.hide()
         self.setFont(font)
         self.background_color = background_color
 
     def paint(self, painter, option, widget=None):
-        painter.setBrush(self.background_color)
+
+        # Transparent Black Rounded Rectangle
+        painter.setBrush(QColor(0, 0, 0, 128))
         painter.setPen(Qt.PenStyle.NoPen)
-
-        rect = self.boundingRect()
-        painter.drawRect(rect)
-
+        painter.drawRoundedRect(self.boundingRect(), 10, 10)
         super().paint(painter, option, widget)
 
     def update(self, text: str, x, y):
+        # `-1` unsets text width, allowing it to adjust automatically based on content.
+        self.setTextWidth(-1)
         self.setPlainText(text)
         rect = self.boundingRect()
+
         max_width = self.video_player.width()
+
         if rect.width() >= max_width:
+            # If the text width exceeds the maximum width, set the text to the maximum width.
             self.setTextWidth(max_width - 50)
             rect = self.boundingRect()
-        if x + rect.width() >= max_width:
-            x = max_width - rect.width()
+
+        if x + rect.width() / 2 >= max_width:
+            x  = max_width - rect.width()
         else:
             x = x - rect.width() / 2
+
         y = y - rect.height()
+
+        x = 0 if x < 0 else x
+        y = 0 if y < 0 else y
 
         self.setPos(x, y)

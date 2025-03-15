@@ -107,8 +107,10 @@
         ("j" . "play_backward_subtitle")
         ("k" . "play_forward_subtitle")
         ("f" . "toggle_fullscreen")
-        ("r" . "restart")
-        ))
+        ("d" . "download_subtitles")
+        ("s" . "reload_subtitles")
+        ("r" . "restart")))
+
 
 (defcustom eaf-video-extension-list
   '("avi" "webm" "rmvb" "ogg" "mp4" "mkv" "m4v")
@@ -131,7 +133,7 @@
 
 (defun eaf-video-player-explain-sentence (text x y)
   (eaf-call-async "execute_function_with_args" eaf--buffer-id "message_box_update" text x y))
-  
+
 
 (provide 'eaf-video-player)
 
