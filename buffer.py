@@ -22,6 +22,8 @@
 
 from math import floor
 import os
+import re
+
 
 import pysrt
 from core.buffer import Buffer
@@ -38,6 +40,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 
 class AppBuffer(Buffer):
     def __init__(self, buffer_id, url, arguments):
@@ -237,16 +240,26 @@ class VideoPlayer(QWidget):
     def download_subtitles_thread(self, url):
         """Subtitle download function executed in multiple processes"""
         from babelfish import Language
-        from subliminal import download_best_subtitles, region, save_subtitles, scan_video
+        from subliminal import (
+            download_best_subtitles,
+            region,
+            save_subtitles,
+            scan_video,
+        )
+
         try:
             # Configure Cache
-            region.configure('dogpile.cache.dbm', arguments={'filename': 'cachefile.dbm'}, replace_existing_backend=True)
+            region.configure(
+                "dogpile.cache.dbm",
+                arguments={"filename": "cachefile.dbm"},
+                replace_existing_backend=True,
+            )
 
             # Scan Video
             video = scan_video(url)
 
             # Download the best subtitles.
-            subtitles = download_best_subtitles([video], {Language('eng')})
+            subtitles = download_best_subtitles([video], {Language("eng")})
 
             # Save subtitles to disk
             save_subtitles(video, subtitles[video])
@@ -316,6 +329,7 @@ class VideoPlayer(QWidget):
     @interactive
     def download_subtitles(self):
         import threading
+
         message_to_emacs("Downloading subtitle.")
         # Retrieve video path
         url = self.media_player.source().path()
@@ -423,7 +437,7 @@ class Subtitles(QtWidgets.QGraphicsTextItem):
     def open(self, url):
         subtitle_url = self.searchSubtitlesFile(url)
         if subtitle_url and os.path.exists(subtitle_url):
-            message_to_emacs(f'Subtitle is: {subtitle_url}')
+            message_to_emacs(f"Subtitle is: {subtitle_url}")
             self.subs = pysrt.open(subtitle_url, encoding="utf-8")
         else:
             message_to_emacs("There is no subtitles.")
@@ -470,6 +484,7 @@ class Subtitles(QtWidgets.QGraphicsTextItem):
         self.clear()
         words = text.split()
         for word in words:
+            word = re.sub(r"<[^>]+>", "", word)
             subtitle_word = SubtitleWord(word, self.video_player)
             self.add_child(subtitle_word)
         self.reposition()
@@ -499,7 +514,6 @@ class SubtitleWord(QtWidgets.QGraphicsTextItem):
 
         # Add Black Outline
         self.setOutlineEffect()
-
 
     def setOutlineEffect(self):
 
@@ -574,7 +588,7 @@ class MessageBox(QtWidgets.QGraphicsTextItem):
             rect = self.boundingRect()
 
         if x + rect.width() / 2 >= max_width:
-            x  = max_width - rect.width()
+            x = max_width - rect.width()
         else:
             x = x - rect.width() / 2
 
